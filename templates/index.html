@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Analysis Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        #fileInput {
+            margin-bottom: 10px;
+        }
+        #analyzeButton {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #analyzeButton:hover {
+            background-color: #45a049;
+        }
+        #output {
+            margin-top: 20px;
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .figure {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .figure img {
+            max-width: 100%;
+            height: auto;
+        }
+        #loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #error {
+            color: red;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .dataframe {
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 0.9em;
+            font-family: sans-serif;
+            min-width: 400px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+        }
+        .dataframe thead tr {
+            background-color: #009879;
+            color: #ffffff;
+            text-align: left;
+        }
+        .dataframe th,
+        .dataframe td {
+            padding: 12px 15px;
+        }
+        .dataframe tbody tr {
+            border-bottom: 1px solid #dddddd;
+        }
+        .dataframe tbody tr:nth-of-type(even) {
+            background-color: #f3f3f3;
+        }
+        .dataframe tbody tr:last-of-type {
+            border-bottom: 2px solid #009879;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CSV Analysis Dashboard</h1>
+	<select id="modelSelect">
+	  <option value="">Loading models...</option>
+	</select>
+        <input type="file" id="fileInput" accept=".csv">
+	<!--<textarea id="promptInput" rows="10" cols="50"></textarea>-->
+        <button id="analyzeButton">Analyze CSV</button>
+        <div id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing... This may take a few moments.</p>
+        </div>
+        <div id="error"></div>
+        <div id="output"></div>
+        <div id="figures"></div>
+    </div>
+    <script>
+        document.getElementById('analyzeButton').addEventListener('click', function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a CSV file');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('modelSelect', document.getElementById('modelSelect').value);
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').textContent = '';
+            document.getElementById('output').innerHTML = '';
+            document.getElementById('figures').innerHTML = '';
+            
+            axios.post('/analyze', formData)
+                .then(function (response) {
+                    document.getElementById('loading').style.display = 'none';
+                    const outputDiv = document.getElementById('output');
+                    outputDiv.innerHTML = response.data.output;
+                    
+                    const figuresDiv = document.getElementById('figures');
+                    figuresDiv.innerHTML = '';
+                    response.data.figures.forEach((figureData, index) => {
+                        const figureDiv = document.createElement('div');
+                        figureDiv.className = 'figure';
+                        figureDiv.innerHTML = `<img src="data:image/png;base64,${figureData}" alt="Figure ${index + 1}">`;
+                        figuresDiv.appendChild(figureDiv);
+                    });
+                })
+                .catch(function (error) {
+                    document.getElementById('loading').style.display = 'none';
+                    console.error('Error:', error);
+                    document.getElementById('error').textContent = 'An error occurred during analysis. Please check the console for more details.';
+                    if (error.response) {
+                        document.getElementById('output').textContent = error.response.data.error || 'Unknown error occurred';
+                    }
+                });
+        });
+
+        function populateModelDropdown() {
+            axios.get('/get_models')
+                .then(function (response) {
+                    const select = document.getElementById('modelSelect');
+                    select.innerHTML = '';
+                    response.data.forEach(function(model) {
+                        const option = document.createElement('option');
+                        option.value = option.textContent = model;
+                        select.appendChild(option);
+                    });
+                })
+                .catch(function (error) {
+                    console.error('Error fetching models:', error);
+                });
+        }
+
+        function populateDefaultPrompt() {
+            document.getElementById('promptInput').value = `Analyze the CSV file and generate Python code to provide summary statistics and visualizations.
+
+DataFrame Information:
+{df.info()}
+
+Column Types:
+{column_info}
+
+Sample Data (first 5 rows):
+{df.head().to_string()}
+
+Full Dataset Shape: {df.shape}
+
+Please generate Python code that does the following:
+1. The full DataFrame is already loaded as 'df'. Do not load the CSV file again.
+2. Print the shape of the DataFrame to confirm the number of rows and columns.
+3. Calculate basic summary statistics for all numerical columns using df.describe() and print the result.
+4. For categorical columns, show value counts and percentages using value_counts(normalize=True) and print the results.
+   Use the following format for each categorical column:
+   print("Value Counts and Percentages for [Column Name]:")
+   print(df['column_name'].value_counts())
+   print(df['column_name'].value_counts(normalize=True) * 100)
+5. Create at least 3 relevant visualizations (e.g., histograms, scatter plots, box plots, bar charts) based on the full dataset.
+6. Provide a brief textual analysis of each visualization using print statements.
+
+Use pandas (pd), numpy (np), matplotlib.pyplot (plt), and seaborn (sns) libraries. 
+The code should be self-contained and ready to run.
+Do not use IPython or any IPython-specific functions like display() or HTML().
+Use print() for all output.
+For each visualization:
+    1. Call plt.figure(figsize=(10, 6)) to create a new figure
+    2. Create the plot (e.g., plt.hist(), sns.scatterplot(), etc.) using the full dataset
+    3. Add appropriate labels and title
+    4. Call plt.show() to display the figure
+
+Do not use subplots or plt.subplots(). Create each plot separately.
+Do not save any files to disk.
+
+Return only the Python code without any additional explanation or markdown formatting.`;
+        }
+
+        // Call these functions when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            populateModelDropdown();
+            populateDefaultPrompt();
+        });
+
+        document.getElementById('analyzeButton').addEventListener('click', function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a CSV file');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('model', document.getElementById('modelSelect').value);
+            formData.append('prompt', document.getElementById('promptInput').value);
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').textContent = '';
+            document.getElementById('output').innerHTML = '';
+            document.getElementById('figures').innerHTML = '';
+            
+            axios.post('/analyze', formData)
+                .then(function (response) {
+                    document.getElementById('loading').style.display = 'none';
+                    const outputDiv = document.getElementById('output');
+                    outputDiv.innerHTML = response.data.output;
+                    
+                    const figuresDiv = document.getElementById('figures');
+                    figuresDiv.innerHTML = '';
+                    response.data.figures.forEach((figureData, index) => {
+                        const figureDiv = document.createElement('div');
+                        figureDiv.className = 'figure';
+                        figureDiv.innerHTML = `<img src="data:image/png;base64,${figureData}" alt="Figure ${index + 1}">`;
+                        figuresDiv.appendChild(figureDiv);
+                    });
+                })
+                .catch(function (error) {
+                    document.getElementById('loading').style.display = 'none';
+                    console.error('Error:', error);
+                    document.getElementById('error').textContent = 'An error occurred during analysis. Please check the console for more details.';
+                    if (error.response) {
+                        document.getElementById('output').textContent = error.response.data.error || 'Unknown error occurred';
+                    }
+                });
+        });
+
+
+    </script>
+</body>
+</html>
